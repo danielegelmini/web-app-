@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuralAtlas | AI Geolocation Benchmark</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS for mapping -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #020617;
+            color: #F8FAFC;
+            margin: 0;
+            overflow: hidden;
+            height: 100vh;
+        }
+        .font-mono { font-family: 'Roboto Mono', monospace; }
+        
+        /* Custom Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1E293B; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+        /* Map Styles */
+        #map { height: 100%; width: 100%; background: #F8FAFC !important; }
+        .leaflet-container { background: #F8FAFC !important; }
+
+        /* Animation */
+        .animate-fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Modal Overlays */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(2, 6, 23, 0.85);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "leaflet": "https://esm.sh/leaflet@^1.9.4"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+
+    <div id="app" class="flex flex-col md:flex-row h-screen w-screen overflow-hidden">
+        
+        <!-- Left Sidebar: Analytics & Image (Dark Theme) -->
+        <aside class="w-full md:w-1/3 lg:w-1/4 h-1/2 md:h-full flex flex-col border-r border-slate-800 z-20 shadow-xl bg-slate-950">
+            
+            <!-- Image Panel Section -->
+            <section id="image-panel" class="flex flex-col h-1/2 md:h-3/5 border-b border-slate-800">
+                <div class="p-4 bg-slate-900 flex justify-between items-center border-b border-slate-800">
+                    <div>
+                        <h1 class="text-xl font-black tracking-tighter text-white uppercase italic">NeuralAtlas</h1>
+                        <p class="text-[10px] text-cyan-500 font-mono font-bold uppercase tracking-widest">Benchmark Sequence</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-[10px] font-mono font-bold text-slate-500 uppercase">Phase</span>
+                        <div id="round-counter" class="text-xl font-black text-white">0<span class="text-slate-700">/</span>5</div>
+                    </div>
+                </div>
+                <div class="flex-1 relative overflow-hidden group">
+                    <img id="target-image" src="" alt="Target" class="w-full h-full object-cover transition-transform duration-700">
+                    <div class="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent"></div>
+                    <div id="target-resolved-info" class="absolute inset-x-0 bottom-0 bg-slate-900/95 backdrop-blur-md p-4 border-t border-emerald-500/50 hidden animate-fade-in">
+                        <p class="text-[10px] font-mono font-bold text-emerald-400 mb-1 tracking-widest uppercase">Target Resolved</p>
+                        <h2 id="location-name" class="text-lg font-black text-white">---</h2>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Leaderboard Section -->
+            <section id="leaderboard" class="h-1/2 md:h-2/5 flex flex-col p-4 bg-slate-950 overflow-hidden">
+                <div class="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
+                    <h3 class="text-[10px] font-black uppercase tracking-widest text-slate-500">Metric Dashboard</h3>
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-cyan-500 animate-pulse"></span>
+                        <span class="text-[9px] font-mono font-bold text-cyan-500">REAL-TIME DATA</span>
+                    </div>
+                </div>
+                <div id="scores-container" class="space-y-2 overflow-y-auto custom-scrollbar flex-1">
+                    <!-- Score entries injected here -->
+                </div>
+            </section>
+        </aside>
+
+        <!-- Right Side: Interaction Map (Bright Theme) -->
+        <main class="flex-1 h-1/2 md:h-full relative z-10">
+            <div id="map"></div>
+            
+            <div id="map-hint" class="absolute top-6 left-1/2 -translate-x-1/2 bg-slate-900/95 backdrop-blur-sm px-4 py-2 rounded-full border border-slate-700 text-white text-[10px] font-black font-mono tracking-widest shadow-xl pointer-events-none z-[2000] flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span id="hint-text">CHOOSE LOCATION IN HIGHLIGHTED STATES</span>
+            </div>
+
+            <div class="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4 pointer-events-none w-full max-w-[200px] z-[3000]">
+                <button id="submit-btn" disabled class="w-full py-3.5 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-2xl transition-all border flex items-center justify-center gap-2 pointer-events-auto bg-slate-800 text-slate-600 border-slate-700 cursor-not-allowed opacity-50">
+                    Confirm Guess
+                </button>
+                <button id="next-btn" class="w-full py-3.5 bg-white hover:bg-slate-200 text-slate-950 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-2xl transition-all border flex items-center justify-center gap-2 pointer-events-auto hidden scale-105 active:scale-95 animate-fade-in">
+                    <span>Next Round</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="intro-modal" class="modal-overlay">
+        <div class="bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-slate-800">
+            <div class="bg-slate-950 p-8 text-center border-b border-slate-800">
+                <h1 class="text-3xl font-black italic uppercase tracking-tighter text-white mb-2">NeuralAtlas</h1>
+                <div class="h-1.5 w-12 bg-emerald-500 mx-auto rounded-full"></div>
+            </div>
+            <div class="p-8 space-y-6">
+                <div class="space-y-4 text-slate-400 text-sm leading-relaxed">
+                    <p className="font-bold text-cyan-500 uppercase tracking-widest text-[10px]">Benchmark Objective:</p>
+                    <p>Compare your spatial intuition against 4 distinct <b>Computer Vision models</b> in 5 geographic challenges. The dataset is restricted to key US states.</p>
+                </div>
+                <button id="start-btn" class="w-full py-4 bg-white hover:bg-slate-200 text-slate-950 font-black text-sm rounded-2xl shadow-xl transition-all uppercase tracking-widest active:scale-95">
+                    Accept Mission
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="report-modal" class="modal-overlay hidden">
+        <div class="max-w-md w-full bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl text-center space-y-6">
+            <div>
+                <h2 class="text-2xl font-black tracking-tighter text-white uppercase italic">Final Report</h2>
+                <div class="h-1 w-16 bg-emerald-500 mx-auto mt-2 rounded-full"></div>
+            </div>
+            <p class="text-slate-500 font-mono text-[10px] font-bold uppercase tracking-widest">Benchmark Sequence Complete</p>
+            <div id="final-scores" class="py-2 max-h-[50vh] overflow-y-auto custom-scrollbar">
+                <!-- Final results injected here -->
+            </div>
+            <button id="restart-btn" class="w-full py-4 bg-white hover:bg-slate-200 text-slate-950 font-black text-sm rounded-2xl transition-all shadow-xl uppercase tracking-widest">
+                Initiate New Sequence
+            </button>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        /** 
+         * CONSTANTS & DATA 
+         */
+        const TARGET_STATES = [
+            'Texas', 'Kansas', 'Oregon', 'Nevada', 'Oklahoma', 
+            'Montana', 'Idaho', 'Nebraska', 'New Mexico', 'Wyoming'
+        ];
+
+        const STATE_BOUNDS = {
+            'Texas': [25.8, 36.5, -106.6, -93.5],
+            'Kansas': [37.0, 40.0, -102.0, -94.6],
+            'Oregon': [42.0, 46.2, -124.5, -116.5],
+            'Nevada': [35.0, 42.0, -120.0, -114.0],
+            'Oklahoma': [33.6, 37.0, -103.0, -94.4],
+            'Montana': [44.3, 49.0, -116.0, -104.0],
+            'Idaho': [42.0, 49.0, -117.2, -111.0],
+            'Nebraska': [40.0, 43.0, -104.0, -95.3],
+            'New Mexico': [31.3, 37.0, -109.0, -103.0],
+            'Wyoming': [41.0, 45.0, -111.0, -104.0]
+        };
+
+        const COLORS = {
+            TRUTH: '#10B981',
+            HUMAN: '#0EA5E9',
+            MODEL_A: '#D946EF',
+            MODEL_B: '#F59E0B',
+            MODEL_C: '#6366F1',
+            MODEL_D: '#EF4444',
+        };
+
+        /**
+         * UTILS
+         */
+        const calculateDistance = (coord1, coord2) => {
+            const R = 6371; 
+            const dLat = (coord2.lat - coord1.lat) * (Math.PI / 180);
+            const dLng = (coord2.lng - coord1.lng) * (Math.PI / 180);
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(coord1.lat * (Math.PI / 180)) * Math.cos(coord2.lat * (Math.PI / 180)) *
+                      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        };
+
+        const formatDistance = (km) => {
+            if (km < 1) return `${(km * 1000).toFixed(0)} m`;
+            return `${km.toFixed(2)} km`;
+        };
+
+        const generateDataset = (count) => {
+            const placeNames = ["Sector Alpha", "Node Beta", "Quadrant Gamma", "Site Delta", "Point Epsilon"];
+            return Array.from({ length: count }, (_, i) => {
+                const state = TARGET_STATES[Math.floor(Math.random() * TARGET_STATES.length)];
+                const bounds = STATE_BOUNDS[state];
+                const truth = {
+                    lat: Math.random() * (bounds[1] - bounds[0]) + bounds[0],
+                    lng: Math.random() * (bounds[3] - bounds[2]) + bounds[2]
+                };
+                return {
+                    id: `IMG-${100 + i}`,
+                    imageUrl: `https://picsum.photos/seed/${Math.random()}/1200/800`,
+                    locationName: `${placeNames[i % placeNames.length]}, ${state}`,
+                    truth,
+                    predictions: {
+                        'NeuralNet-Alpha': { lat: truth.lat + (Math.random() - 0.5) * 1.5, lng: truth.lng + (Math.random() - 0.5) * 1.5 },
+                        'VisualTrans-9': { lat: truth.lat + (Math.random() - 0.5) * 0.8, lng: truth.lng + (Math.random() - 0.5) * 0.8 },
+                        'Legacy-Vision': { lat: truth.lat + (Math.random() - 0.5) * 4.0, lng: truth.lng + (Math.random() - 0.5) * 4.0 },
+                        'SpatialAI-v2': { lat: truth.lat + (Math.random() - 0.5) * 1.2, lng: truth.lng + (Math.random() - 0.5) * 1.2 }
+                    }
+                };
+            });
+        };
+
+        /**
+         * GAME ENGINE
+         */
+        let gameData = [];
+        let currentRound = 0;
+        let gameState = 'guessing'; // guessing, revealed, finished
+        let userGuess = null;
+        let scores = [];
+        let map, markersLayer, geojsonLayer;
+
+        function initScores() {
+            scores = [
+                { name: 'Human Subject', currentError: 0, totalError: 0, color: COLORS.HUMAN, type: 'human' },
+                { name: 'NeuralNet-Alpha', currentError: 0, totalError: 0, color: COLORS.MODEL_A, type: 'model' },
+                { name: 'VisualTrans-9', currentError: 0, totalError: 0, color: COLORS.MODEL_B, type: 'model' },
+                { name: 'Legacy-Vision', currentError: 0, totalError: 0, color: COLORS.MODEL_C, type: 'model' },
+                { name: 'SpatialAI-v2', currentError: 0, totalError: 0, color: COLORS.MODEL_D, type: 'model' },
+            ];
+        }
+
+        function initMap() {
+            map = L.map('map', {
+                center: [39, -100],
+                zoom: 4,
+                zoomControl: false,
+                attributionControl: false
+            });
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png').addTo(map);
+            markersLayer = L.layerGroup().addTo(map);
+
+            fetch('https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json')
+                .then(r => r.json())
+                .then(data => {
+                    geojsonLayer = L.geoJSON(data, {
+                        style: (f) => {
+                            const isT = TARGET_STATES.includes(f.properties.name);
+                            return {
+                                fillColor: isT ? '#10B981' : '#F1F5F9',
+                                weight: isT ? 3 : 1,
+                                opacity: 1,
+                                color: isT ? '#059669' : '#CBD5E1',
+                                fillOpacity: isT ? 0.35 : 0.6
+                            };
+                        }
+                    }).addTo(map);
+
+                    geojsonLayer.eachLayer(l => {
+                        if (l.feature && TARGET_STATES.includes(l.feature.properties.name)) {
+                            l.bringToFront();
+                        }
+                    });
+                });
+
+            map.on('click', e => {
+                if (gameState === 'guessing') {
+                    userGuess = { lat: e.latlng.lat, lng: e.latlng.lng };
+                    updateMapMarkers();
+                    document.getElementById('submit-btn').disabled = false;
+                    document.getElementById('submit-btn').classList.remove('opacity-50', 'cursor-not-allowed');
+                    document.getElementById('submit-btn').classList.add('bg-sky-600', 'text-white', 'border-sky-400', 'scale-105');
+                    document.getElementById('hint-text').innerText = 'LOCATION LOCKED';
+                }
+            });
+        }
+
+        function updateMapMarkers() {
+            markersLayer.clearLayers();
+            const round = gameData[currentRound];
+            const bounds = [];
+
+            if (userGuess) {
+                const icon = L.divIcon({
+                    className: '',
+                    html: `<div style="background:${COLORS.HUMAN};width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 4px 6px rgba(0,0,0,0.2)"></div>`,
+                    iconSize: [14, 14], iconAnchor: [7, 7]
+                });
+                L.marker([userGuess.lat, userGuess.lng], { icon }).addTo(markersLayer);
+                bounds.push([userGuess.lat, userGuess.lng]);
+            }
+
+            if (gameState === 'revealed') {
+                // Truth
+                const tIcon = L.divIcon({
+                    className: '',
+                    html: `<div style="background:${COLORS.TRUTH};width:16px;height:16px;border-radius:50%;border:2px solid white;box-shadow:0 0 10px ${COLORS.TRUTH}"></div>`,
+                    iconSize: [16, 16], iconAnchor: [8, 8]
+                });
+                L.marker([round.truth.lat, round.truth.lng], { icon: tIcon }).addTo(markersLayer);
+                bounds.push([round.truth.lat, round.truth.lng]);
+
+                // AI Predictions
+                const modelColors = [COLORS.MODEL_A, COLORS.MODEL_B, COLORS.MODEL_C, COLORS.MODEL_D];
+                Object.entries(round.predictions).forEach(([name, coord], i) => {
+                    const color = modelColors[i % modelColors.length];
+                    const aiIcon = L.divIcon({
+                        className: '',
+                        html: `<div style="background:${color};width:12px;height:12px;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.1)"></div>`,
+                        iconSize: [12, 12], iconAnchor: [6, 6]
+                    });
+                    L.marker([coord.lat, coord.lng], { icon: aiIcon }).addTo(markersLayer);
+                    bounds.push([coord.lat, coord.lng]);
+                    
+                    L.polyline([[coord.lat, coord.lng], [round.truth.lat, round.truth.lng]], {
+                        color, weight: 1.5, dashArray: '4, 4', opacity: 0.5
+                    }).addTo(markersLayer);
+                });
+
+                if (userGuess) {
+                    L.polyline([[userGuess.lat, userGuess.lng], [round.truth.lat, round.truth.lng]], {
+                        color: COLORS.HUMAN, weight: 2, dashArray: '2, 4', opacity: 0.7
+                    }).addTo(markersLayer);
+                }
+
+                if (bounds.length > 1) {
+                    map.fitBounds(bounds, { padding: [100, 100], duration: 1.2 });
+                }
+            }
+        }
+
+        function updateUI() {
+            const round = gameData[currentRound];
+            document.getElementById('target-image').src = round.imageUrl;
+            document.getElementById('round-counter').innerHTML = `${currentRound + 1}<span class="text-slate-700">/</span>${gameData.length}`;
+            
+            if (gameState === 'revealed') {
+                document.getElementById('target-resolved-info').classList.remove('hidden');
+                document.getElementById('location-name').innerText = round.locationName;
+                document.getElementById('submit-btn').classList.add('hidden');
+                document.getElementById('next-btn').classList.remove('hidden');
+                document.getElementById('next-btn').querySelector('span').innerText = (currentRound === gameData.length - 1) ? 'View Results' : 'Next Round';
+            } else {
+                document.getElementById('target-resolved-info').classList.add('hidden');
+                document.getElementById('submit-btn').classList.remove('hidden');
+                document.getElementById('next-btn').classList.add('hidden');
+                document.getElementById('submit-btn').disabled = true;
+                document.getElementById('submit-btn').classList.add('opacity-50', 'cursor-not-allowed');
+                document.getElementById('submit-btn').classList.remove('bg-sky-600', 'text-white', 'border-sky-400', 'scale-105');
+                document.getElementById('hint-text').innerText = 'CHOOSE LOCATION IN HIGHLIGHTED STATES';
+            }
+
+            renderLeaderboard();
+        }
+
+        function renderLeaderboard() {
+            const container = document.getElementById('scores-container');
+            container.innerHTML = '';
+
+            const sorted = [...scores].sort((a, b) => a.totalError - b.totalError);
+            sorted.forEach((s, idx) => {
+                const el = document.createElement('div');
+                el.className = `flex flex-col p-3 rounded-xl border transition-all duration-300 ${s.type === 'human' ? 'bg-sky-950/40 border-sky-500/30' : 'bg-slate-900/50 border-slate-800'}`;
+                
+                let inner = `
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="text-[10px] font-mono font-bold text-slate-600 w-3">${idx + 1}</span>
+                            <div class="w-2.5 h-2.5 rounded-full ring-2 ring-slate-950" style="background:${s.color}"></div>
+                            <span class="text-xs font-bold ${s.type === 'human' ? 'text-sky-300' : 'text-slate-200'}">${s.name}</span>
+                        </div>
+                        <div class="text-[11px] font-mono font-bold text-white">${formatDistance(s.totalError)}</div>
+                    </div>
+                `;
+
+                if (gameState === 'revealed') {
+                    inner += `
+                        <div class="mt-2 pt-2 border-t border-slate-800/50 flex justify-between items-center animate-fade-in">
+                            <span class="text-[9px] font-mono font-bold text-slate-500 uppercase">Round Error</span>
+                            <span class="text-[10px] font-mono font-bold ${s.currentError < 100 ? 'text-emerald-400' : 'text-orange-400'}">+${formatDistance(s.currentError)}</span>
+                        </div>
+                    `;
+                }
+
+                el.innerHTML = inner;
+                container.appendChild(el);
+            });
+        }
+
+        /**
+         * ACTIONS
+         */
+        function startMission() {
+            document.getElementById('intro-modal').classList.add('hidden');
+            gameData = generateDataset(5);
+            currentRound = 0;
+            initScores();
+            gameState = 'guessing';
+            updateUI();
+        }
+
+        function submitGuess() {
+            if (!userGuess) return;
+            gameState = 'revealed';
+            const round = gameData[currentRound];
+            
+            scores.forEach(s => {
+                let err = 0;
+                if (s.type === 'human') {
+                    err = calculateDistance(userGuess, round.truth);
+                } else {
+                    err = calculateDistance(round.predictions[s.name], round.truth);
+                }
+                s.currentError = err;
+                s.totalError += err;
+            });
+
+            updateMapMarkers();
+            updateUI();
+        }
+
+        function nextRound() {
+            if (currentRound < gameData.length - 1) {
+                currentRound++;
+                gameState = 'guessing';
+                userGuess = null;
+                markersLayer.clearLayers();
+                map.setView([39, -100], 4);
+                updateUI();
+            } else {
+                showFinalReport();
+            }
+        }
+
+        function showFinalReport() {
+            document.getElementById('report-modal').classList.remove('hidden');
+            const finalContainer = document.getElementById('final-scores');
+            finalContainer.innerHTML = '';
+            
+            const sorted = [...scores].sort((a, b) => a.totalError - b.totalError);
+            sorted.forEach((s, idx) => {
+                const row = document.createElement('div');
+                row.className = `flex justify-between items-center p-4 rounded-xl mb-2 ${s.type === 'human' ? 'bg-sky-900/30 border border-sky-500/30' : 'bg-slate-800/40 border border-slate-700'}`;
+                row.innerHTML = `
+                    <div class="flex items-center gap-4">
+                        <span class="text-xl font-black italic text-slate-600">${idx + 1}</span>
+                        <div class="w-3 h-3 rounded-full" style="background:${s.color}"></div>
+                        <span class="font-bold text-white text-sm">${s.name}</span>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-[10px] text-slate-500 uppercase font-mono font-bold">Total Error</div>
+                        <div class="text-white font-mono font-bold">${formatDistance(s.totalError)}</div>
+                    </div>
+                `;
+                finalContainer.appendChild(row);
+            });
+        }
+
+        function restartGame() {
+            document.getElementById('report-modal').classList.add('hidden');
+            startMission();
+        }
+
+        /**
+         * INITIALIZATION
+         */
+        window.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            document.getElementById('start-btn').onclick = startMission;
+            document.getElementById('submit-btn').onclick = submitGuess;
+            document.getElementById('next-btn').onclick = nextRound;
+            document.getElementById('restart-btn').onclick = restartGame;
+        });
+
+    </script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>
